@@ -54,14 +54,12 @@ dkms.conf
 # debug information files
 *.dwo
 
-# Custom Executables
+# Custom Executables (Makefile 산출물 — 커밋 금지, 각자 빌드)
 /server
-/client
-/monitor
-/sandbox_demo
-/connect
+/client_ui
+/watchdog
 
-# Game Data & Logs / Sandbox
+# Game Data & Logs / Sandbox (서버가 런타임에 mkdir로 자동 생성)
 /data/users/*
 /data/master/*
 !/data/users/.gitkeep
@@ -76,5 +74,13 @@ dkms.conf
 .DS_Store
 .vscode/
 .idea/
+.claude/
+
+# 제출 무관 파일 — Git 추적 제외 (로컬 작업용으로만 유지)
+#  - docs/  : 내부 기획 문서(GDD/Task/Schedule/Worktable/BUGFIX). 제출 문서는 README.md만.
+#  - tests/ : Python 통합 테스트(개발 검증용). .cursorrules "C only" 규정상 제출 제외.
+#  - .cursorrules / CLAUDE.md : AI 보조 규칙 파일.
 .cursorrules
-*.md
+CLAUDE.md
+/docs/
+/tests/
