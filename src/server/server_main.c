@@ -391,8 +391,7 @@ void fire_round_end_countdown(const char *announce_text) {
     pthread_mutex_unlock(&clients_mutex);
 
     // 3. 잔액 조회 — 탈출자는 제외 (GDD §F: 스코어보드는 남은 플레이어 전용)
-    //    클라 disconnect 처리 전이라 active_keys에 탈출자가 잔존할 수 있는 race
-    //    window를 명시적으로 차단.
+    //    탈출 직후라 active_keys에 아직 남아 있을 수 있어서 한 번 더 걸러준다.
     ScoreRemaining rank[MAX_CLIENTS];
     int rank_cnt = 0;
     for (int i = 0; i < snap_cnt; i++) {
@@ -526,7 +525,7 @@ static void handle_buy(int sock, const char *key, Packet *pkt) {
 
     // 3. 인벤토리 용량 제한
     if (sandbox_count(key) >= MAX_INVEN_SIZE) {
-        send_error(sock, ERR_INVENTORY_FULL, "인벤토리가 가득 찼습니다 (최대 5칸).");
+        send_error(sock, ERR_INVENTORY_FULL, "인벤토리가 가득 찼습니다 (최대 7칸).");
         return;
     }
 
@@ -542,7 +541,7 @@ static void handle_buy(int sock, const char *key, Packet *pkt) {
         return;
     }
 
-    // 5. 매물 원자적 점유 (선착순 독점 + 동결 TOCTOU 동시 방어)
+    // 5. 매물 점유 — 락 안에서 한 번에 처리 (선착순 독점 + 동결 여부 같이 확인)
     int take_rc = market_take(doc_id, &slot);
     if (take_rc == -2) {
         send_error(sock, ERR_DOC_FROZEN, "동결된 매물입니다.");
@@ -594,11 +593,10 @@ static void handle_sell(int sock, const char *key, Packet *pkt) {
         return;
     }
 
-    // 락 순서 규약 — doc_id 오름차순 정렬로 Circular Wait 원천 차단
-    // (GDD §3.A / Task.md B-[핵심] 평가 어필 함수)
+    // 제출 문서 ID를 오름차순으로 정렬해서 처리 순서를 일정하게 맞춘다.
     int32_t doc_ids[MAX_INVEN_SIZE];
     memcpy(doc_ids, pkt->body.sell.doc_ids, count * sizeof(int32_t));
-    market_doc_lock_many(doc_ids, count);
+    market_doc_sort_ids(doc_ids, count);
 
     // 1. NPC 존재 확인
     NPCSlot npc;
@@ -756,6 +754,13 @@ static void handle_payoff(int sock, const char *key) {
                  key, prev_goal, next_goal);
     }
     broadcast_packet(&evt);
+
+    // 인상된 목표 상환액을 전 클라이언트에 구조화 전송 → 남은 유저 UI 목표액 즉시 갱신
+    Packet goal_evt;
+    memset(&goal_evt, 0, sizeof(Packet));
+    goal_evt.type = PKT_EVT_GOAL_UPDATE;
+    goal_evt.body.goal_update.goal_money = next_goal;
+    broadcast_packet(&goal_evt);
 
     printf("[Server] User '%s' paid off! Escaped count: %d, New Goal: %d\n",
            key, escaped_now, next_goal);
@@ -970,6 +975,9 @@ static void handle_rumor(int sock, const char *key, Packet *pkt) {
 
     printf("[Server] %s paid %d for /rumor against %s (cooldown %ds).\n",
            key, RUMOR_FEE, target_key, RUMOR_COOLDOWN_SEC);
+
+    // 수수료 차감 결과(잔고)를 요청자에게 즉시 반영 (인벤 정보 재전송으로 my_money 갱신)
+    handle_inventory(sock, key);
 }
 
 // ============================================================
